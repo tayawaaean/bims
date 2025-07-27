@@ -3,8 +3,9 @@ const Household = require('../models/Household');
 const logger = require('../utils/logger');
 const updateHouseholdMembers = require('../utils/updateHouseholdMembers');
 const updateHouseholdHead = require('../utils/updateHouseholdHead');
+const updateHouseholdSummary = require('../utils/updateHouseholdSummary'); // ✅ Add this
 
-// Utility to ensure only one head per household
+// 🔒 Ensure only one 'Head' per household
 const ensureSingleHouseholdHead = async (householdId, excludeId = null) => {
   const existingHead = await Resident.findOne({
     household: householdId,
@@ -23,6 +24,7 @@ exports.addResident = async (req, res) => {
   try {
     const { body, file } = req;
 
+    // 🔍 Validate household if provided
     if (body.household) {
       const householdExists = await Household.findById(body.household);
       if (!householdExists) {
@@ -43,6 +45,7 @@ exports.addResident = async (req, res) => {
     await newResident.save();
     await updateHouseholdMembers(newResident.household);
     await updateHouseholdHead(newResident.household);
+    await updateHouseholdSummary(newResident.household); // ✅ Update summary
 
     logger.info(`👤 Resident added: ${newResident.firstName} ${newResident.lastName}`);
     res.status(201).json({ message: 'Resident added successfully', resident: newResident });
@@ -74,10 +77,12 @@ exports.updateResident = async (req, res) => {
     if (newHousehold !== oldHousehold) {
       await updateHouseholdMembers(oldHousehold);
       await updateHouseholdHead(oldHousehold);
+      await updateHouseholdSummary(oldHousehold); // ✅ Update old household summary
     }
 
     await updateHouseholdMembers(newHousehold);
     await updateHouseholdHead(newHousehold);
+    await updateHouseholdSummary(newHousehold); // ✅ Update new household summary
 
     logger.info(`✏️ Resident updated: ${updated.firstName} ${updated.lastName}`);
     res.status(200).json({ message: 'Resident updated successfully', resident: updated });
@@ -114,6 +119,7 @@ exports.deleteResident = async (req, res) => {
 
     await updateHouseholdMembers(deleted.household);
     await updateHouseholdHead(deleted.household);
+    await updateHouseholdSummary(deleted.household); // ✅ Update summary after delete
 
     logger.info(`🗑 Resident deleted: ${deleted.firstName} ${deleted.lastName}`);
     res.status(200).json({ message: 'Resident deleted successfully' });
@@ -134,23 +140,43 @@ exports.getResidents = async (req, res) => {
       purok,
       employmentStatus,
       isVoter,
+      is4PsBeneficiary,
+      tags,
+      minIncome,
+      maxIncome,
       page = 1,
       limit = 10
     } = req.query;
 
     const query = {};
+
     if (search) {
       query.$or = [
-        { firstName: new RegExp(search, 'i') },
-        { lastName: new RegExp(search, 'i') },
-        { middleName: new RegExp(search, 'i') }
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { middleName: { $regex: search, $options: 'i' } }
       ];
     }
+
     if (gender) query.gender = gender;
     if (status) query.status = status;
     if (purok) query.purok = purok;
     if (employmentStatus) query.employmentStatus = employmentStatus;
     if (isVoter !== undefined) query.isVoter = isVoter === 'true';
+    if (is4PsBeneficiary !== undefined) query.is4PsBeneficiary = is4PsBeneficiary === 'true';
+
+    if (tags) {
+      const tagsArray = Array.isArray(tags) ? tags : tags.split(',');
+      if (tagsArray.includes('PWD')) query.isPWD = true;
+      if (tagsArray.includes('SeniorCitizen')) query.isSeniorCitizen = true;
+      if (tagsArray.includes('SoloParent')) query.isSoloParent = true;
+    }
+
+    if (minIncome || maxIncome) {
+      query.monthlyIncome = {};
+      if (minIncome) query.monthlyIncome.$gte = parseFloat(minIncome);
+      if (maxIncome) query.monthlyIncome.$lte = parseFloat(maxIncome);
+    }
 
     const skip = (page - 1) * limit;
     const total = await Resident.countDocuments(query);
@@ -198,6 +224,7 @@ exports.getResidentsByHousehold = async (req, res) => {
       .sort({ lastName: 1 });
 
     res.status(200).json({ householdId, residents });
+
   } catch (err) {
     logger.error(`❌ Failed to fetch household members: ${err.message}`);
     res.status(500).json({ message: 'Server error fetching household members' });

@@ -1,6 +1,7 @@
 const Household = require('../models/Household');
 const Resident = require('../models/Resident');
 const logger = require('../utils/logger');
+const updateHouseholdSummary = require('../utils/updateHouseholdSummary'); // ✅ NEW
 
 // ➕ Add Household
 exports.addHousehold = async (req, res) => {
@@ -34,6 +35,9 @@ exports.updateHousehold = async (req, res) => {
     const updated = await Household.findByIdAndUpdate(req.params.id, req.body, { new: true });
 
     if (!updated) return res.status(404).json({ message: 'Household not found' });
+
+    // ✅ Update derived fields
+    await updateHouseholdSummary(updated._id);
 
     logger.info(`✏️ Household updated: ${updated.householdCode}`);
     res.status(200).json({ message: 'Household updated', household: updated });
@@ -93,7 +97,6 @@ exports.getHouseholds = async (req, res) => {
   }
 };
 
-
 // 🔍 Get Single Household
 exports.getHouseholdById = async (req, res) => {
   try {
@@ -114,6 +117,9 @@ exports.getHouseholdMembers = async (req, res) => {
 
     const members = await Resident.find({ household: householdId });
 
+    // ✅ Ensure summary is accurate
+    await updateHouseholdSummary(householdId);
+
     res.status(200).json({
       members,
       count: members.length
@@ -124,7 +130,7 @@ exports.getHouseholdMembers = async (req, res) => {
   }
 };
 
-// 🔁 Recalculate Total Members
+// 🔁 Recalculate Total Members + Summary
 exports.recalculateTotalMembers = async (req, res) => {
   try {
     const { id } = req.params;
@@ -132,19 +138,22 @@ exports.recalculateTotalMembers = async (req, res) => {
     const household = await Household.findById(id);
     if (!household) return res.status(404).json({ message: 'Household not found' });
 
-    const totalMembers = await Resident.countDocuments({ household: id });
-    household.totalMembers = totalMembers;
-    await household.save();
+    // ✅ Full summary update (members, income, 4Ps)
+    await updateHouseholdSummary(id);
 
-    logger.info(`🔄 Recalculated total members for ${household.householdCode}: ${totalMembers}`);
+    const updated = await Household.findById(id);
+
+    logger.info(`🔄 Recalculated summary for ${updated.householdCode}`);
 
     res.status(200).json({
-      message: 'Total members updated',
-      totalMembers
+      message: 'Household summary updated',
+      totalMembers: updated.totalMembers,
+      monthlyIncome: updated.monthlyIncome,
+      has4PsBeneficiary: updated.has4PsBeneficiary
     });
 
   } catch (err) {
-    logger.error(`❌ Error recalculating members: ${err.message}`);
+    logger.error(`❌ Error recalculating household summary: ${err.message}`);
     res.status(500).json({ message: 'Server error' });
   }
 };

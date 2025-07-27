@@ -61,6 +61,8 @@ const residentSchema = new mongoose.Schema({
   },
   occupation: { type: String },
   employer: { type: String },
+  monthlyIncome: { type: Number, default: 0 },
+  is4PsBeneficiary: { type: Boolean, default: false },
 
   // 👪 Household Info
   household: {
@@ -80,6 +82,11 @@ const residentSchema = new mongoose.Schema({
   },
   statusDate: { type: Date },
   remarks: { type: String },
+
+  // 🏷️ Resident Tags
+  isPWD: { type: Boolean, default: false },
+  isSeniorCitizen: { type: Boolean, default: false },
+  isSoloParent: { type: Boolean, default: false },
 
   // 🖼 Avatar & QR
   avatar: { type: String, default: '' },
@@ -105,15 +112,13 @@ const residentSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
-
 // 🔁 Recalculate total members when resident is saved
 residentSchema.post('save', async function () {
   if (this.household) {
-    const count = await mongoose.model('Resident').countDocuments({ household: this.household });
+    const Resident = mongoose.model('Resident');
 
-    await Household.findByIdAndUpdate(this.household, {
-      totalMembers: count
-    });
+    const count = await Resident.countDocuments({ household: this.household });
+    await Household.findByIdAndUpdate(this.household, { totalMembers: count });
 
     // 👑 Set as head if household has no head yet
     const household = await Household.findById(this.household);
@@ -127,10 +132,9 @@ residentSchema.post('save', async function () {
 // ❌ Recalculate total members when resident is deleted
 residentSchema.post('findOneAndDelete', async function (doc) {
   if (doc?.household) {
-    const count = await mongoose.model('Resident').countDocuments({ household: doc.household });
-    await Household.findByIdAndUpdate(doc.household, {
-      totalMembers: count
-    });
+    const Resident = mongoose.model('Resident');
+    const count = await Resident.countDocuments({ household: doc.household });
+    await Household.findByIdAndUpdate(doc.household, { totalMembers: count });
   }
 });
 
