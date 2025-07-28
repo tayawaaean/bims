@@ -5,7 +5,8 @@ const {
   createRequest,
   approveRequest,
   getRequests,
-  markAsClaimed
+  markAsClaimed,
+  downloadPdf
 } = require('../controllers/documentController');
 
 const { protect, adminOnly } = require('../middlewares/authMiddleware');
@@ -21,5 +22,8 @@ router.put('/:id/claim', protect, adminOnly, markAsClaimed);
 
 // 📋 Get all document requests (Admin only)
 router.get('/', protect, adminOnly, getRequests);
+
+// 🖨 Download PDF of approved/claimed document (Admin only)
+router.get('/:id/pdf', protect, adminOnly, downloadPdf);
 
 module.exports = router;

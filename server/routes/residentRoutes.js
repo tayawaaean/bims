@@ -7,7 +7,12 @@ const {
   getResidents,
   getResidentById,
   updateResidentAvatar,
-  getResidentsByHousehold
+  getResidentsByHousehold,
+  exportResidentsCSV,
+  exportResidentsExcel,
+  importResidentsCSV,
+  importResidentsExcel,
+  uploadImport
 } = require('../controllers/residentController');
 
 const { protect, adminOnly } = require('../middlewares/authMiddleware');
@@ -33,5 +38,13 @@ router.get('/:id', protect, adminOnly, getResidentById);
 
 // 👨‍👩‍👧 Get All Members of a Household
 router.get('/household/:householdId', protect, adminOnly, getResidentsByHousehold);
+
+// 🔄 Export Residents (CSV & Excel)
+router.get('/export/csv', protect, adminOnly, exportResidentsCSV);
+router.get('/export/excel', protect, adminOnly, exportResidentsExcel);
+
+// 🔄 Import Residents (CSV & Excel)
+router.post('/import/csv', protect, adminOnly, uploadImport, importResidentsCSV);
+router.post('/import/excel', protect, adminOnly, uploadImport, importResidentsExcel);
 
 module.exports = router;

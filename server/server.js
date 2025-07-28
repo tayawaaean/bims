@@ -58,6 +58,11 @@ const userRoutes = require('./routes/userRoutes');
 const residentRoutes = require('./routes/residentRoutes');
 const householdRoutes = require('./routes/householdRoutes');
 const documentRoutes = require('./routes/documentRoutes');
+const blotterRoutes = require('./routes/blotterRoutes');
+const announcementRoutes = require('./routes/announcementRoutes');
+const reportRoutes = require('./routes/reportRoutes');
+const profileRoutes = require('./routes/profileRoutes');
+const systemRoutes = require('./routes/systemRoutes');
 // Add more route files here (e.g. residentRoutes, announcementRoutes, etc.)
 
 // API Endpoints
@@ -66,6 +71,11 @@ app.use('/api/users', userRoutes);
 app.use('/api/residents', residentRoutes);
 app.use('/api/households', householdRoutes);
 app.use('/api/documents', documentRoutes);
+app.use('/api/blotters', blotterRoutes);
+app.use('/api/announcements', announcementRoutes);
+app.use('/api/reports', reportRoutes);
+app.use('/api/profile', profileRoutes);
+app.use('/api/system', systemRoutes);
 
 
 // Root

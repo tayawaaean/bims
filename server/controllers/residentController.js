@@ -3,7 +3,17 @@ const Household = require('../models/Household');
 const logger = require('../utils/logger');
 const updateHouseholdMembers = require('../utils/updateHouseholdMembers');
 const updateHouseholdHead = require('../utils/updateHouseholdHead');
-const updateHouseholdSummary = require('../utils/updateHouseholdSummary'); // ✅ Add this
+const updateHouseholdSummary = require('../utils/updateHouseholdSummary');
+
+const { Parser } = require('json2csv');
+const ExcelJS = require('exceljs');
+const csv = require('csv-parser');
+const fs = require('fs');
+const multer = require('multer');
+
+// Multer middleware for import file upload
+const uploadImport = multer({ dest: 'uploads/imports/' });
+exports.uploadImport = uploadImport.single('file');
 
 // 🔒 Ensure only one 'Head' per household
 const ensureSingleHouseholdHead = async (householdId, excludeId = null) => {
@@ -45,7 +55,7 @@ exports.addResident = async (req, res) => {
     await newResident.save();
     await updateHouseholdMembers(newResident.household);
     await updateHouseholdHead(newResident.household);
-    await updateHouseholdSummary(newResident.household); // ✅ Update summary
+    await updateHouseholdSummary(newResident.household);
 
     logger.info(`👤 Resident added: ${newResident.firstName} ${newResident.lastName}`);
     res.status(201).json({ message: 'Resident added successfully', resident: newResident });
@@ -77,12 +87,12 @@ exports.updateResident = async (req, res) => {
     if (newHousehold !== oldHousehold) {
       await updateHouseholdMembers(oldHousehold);
       await updateHouseholdHead(oldHousehold);
-      await updateHouseholdSummary(oldHousehold); // ✅ Update old household summary
+      await updateHouseholdSummary(oldHousehold);
     }
 
     await updateHouseholdMembers(newHousehold);
     await updateHouseholdHead(newHousehold);
-    await updateHouseholdSummary(newHousehold); // ✅ Update new household summary
+    await updateHouseholdSummary(newHousehold);
 
     logger.info(`✏️ Resident updated: ${updated.firstName} ${updated.lastName}`);
     res.status(200).json({ message: 'Resident updated successfully', resident: updated });
@@ -119,7 +129,7 @@ exports.deleteResident = async (req, res) => {
 
     await updateHouseholdMembers(deleted.household);
     await updateHouseholdHead(deleted.household);
-    await updateHouseholdSummary(deleted.household); // ✅ Update summary after delete
+    await updateHouseholdSummary(deleted.household);
 
     logger.info(`🗑 Resident deleted: ${deleted.firstName} ${deleted.lastName}`);
     res.status(200).json({ message: 'Resident deleted successfully' });
@@ -228,5 +238,91 @@ exports.getResidentsByHousehold = async (req, res) => {
   } catch (err) {
     logger.error(`❌ Failed to fetch household members: ${err.message}`);
     res.status(500).json({ message: 'Server error fetching household members' });
+  }
+};
+
+// ===============================
+// === Resident Import/Export ====
+// ===============================
+
+// 🔄 Export Residents as CSV
+exports.exportResidentsCSV = async (req, res) => {
+  try {
+    const residents = await Resident.find();
+    const fields = ['lastName', 'firstName', 'middleName', 'address', 'birthdate', 'status'];
+    const json2csv = new Parser({ fields });
+    const csvFile = json2csv.parse(residents);
+
+    res.header('Content-Type', 'text/csv');
+    res.attachment('residents.csv');
+    return res.send(csvFile);
+  } catch (err) {
+    res.status(500).json({ message: 'Error exporting CSV' });
+  }
+};
+
+// 🔄 Export Residents as Excel
+exports.exportResidentsExcel = async (req, res) => {
+  try {
+    const residents = await Resident.find();
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Residents');
+
+    worksheet.columns = [
+      { header: 'Last Name', key: 'lastName' },
+      { header: 'First Name', key: 'firstName' },
+      { header: 'Middle Name', key: 'middleName' },
+      { header: 'Address', key: 'address' },
+      { header: 'Birthdate', key: 'birthdate' },
+      { header: 'Status', key: 'status' }
+    ];
+
+    residents.forEach(r => worksheet.addRow(r));
+
+    res.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.attachment('residents.xlsx');
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    res.status(500).json({ message: 'Error exporting Excel' });
+  }
+};
+
+// 🔄 Import Residents from CSV
+exports.importResidentsCSV = async (req, res) => {
+  if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+  const results = [];
+  fs.createReadStream(req.file.path)
+    .pipe(csv())
+    .on('data', (data) => results.push(data))
+    .on('end', async () => {
+      try {
+        await Resident.insertMany(results);
+        fs.unlinkSync(req.file.path);
+        res.json({ message: "Residents imported successfully", count: results.length });
+      } catch (err) {
+        res.status(500).json({ message: "Error importing residents", error: err.message });
+      }
+    });
+};
+
+// 🔄 Import Residents from Excel
+exports.importResidentsExcel = async (req, res) => {
+  if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+  try {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(req.file.path);
+    const worksheet = workbook.getWorksheet(1);
+    const residents = [];
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return; // skip header
+      const [lastName, firstName, middleName, address, birthdate, status] = row.values.slice(1);
+      residents.push({ lastName, firstName, middleName, address, birthdate, status });
+    });
+    await Resident.insertMany(residents);
+    fs.unlinkSync(req.file.path);
+    res.json({ message: "Residents imported from Excel", count: residents.length });
+  } catch (err) {
+    res.status(500).json({ message: "Error importing residents from Excel", error: err.message });
   }
 };
