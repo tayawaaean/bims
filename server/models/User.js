@@ -25,9 +25,9 @@ const userSchema = new mongoose.Schema({
     required: true
   },
   role: {
-    type: String,
-    enum: ['admin', 'clerk', 'official', 'resident'],
-    default: 'resident'
+  type: [String],
+  enum: ['admin', 'clerk', 'official', 'resident'],
+  default: ['resident']
   },
   isApproved: {
     type: Boolean,

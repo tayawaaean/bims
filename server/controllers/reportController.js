@@ -3,6 +3,7 @@ const Document = require('../models/DocumentRequest');
 const Blotter = require('../models/Blotter');
 const PDFDocument = require('pdfkit');
 const ExcelJS = require('exceljs');
+const auditLog = require('../utils/auditLogger'); // <-- Add this
 
 // Population breakdown: by purok, gender, age group
 exports.populationBreakdown = async (req, res) => {
@@ -35,6 +36,7 @@ exports.populationBreakdown = async (req, res) => {
         }
       }
     ]);
+    await auditLog(req.user?._id, 'Get Population Breakdown', 'Population breakdown data retrieved');
     res.json({
       purok: purokAgg,
       gender: genderAgg,
@@ -46,6 +48,7 @@ exports.populationBreakdown = async (req, res) => {
       ]
     });
   } catch (err) {
+    await auditLog(req.user?._id, 'Get Population Breakdown Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error generating population breakdown' });
   }
 };
@@ -88,7 +91,10 @@ exports.populationExportPDF = async (req, res) => {
     doc.text(` - 60+: ${ageAgg[3]?.count || 0}`);
 
     doc.end();
+
+    await auditLog(req.user?._id, 'Export Population Breakdown PDF', 'Population breakdown exported as PDF');
   } catch (err) {
+    await auditLog(req.user?._id, 'Export Population Breakdown PDF Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error exporting PDF' });
   }
 };
@@ -126,7 +132,10 @@ exports.populationExportExcel = async (req, res) => {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     await workbook.xlsx.write(res);
     res.end();
+
+    await auditLog(req.user?._id, 'Export Population Breakdown Excel', 'Population breakdown exported as Excel');
   } catch (err) {
+    await auditLog(req.user?._id, 'Export Population Breakdown Excel Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error exporting Excel' });
   }
 };
@@ -142,6 +151,7 @@ exports.demographics = async (req, res) => {
     const pwd = await Resident.countDocuments({ tags: "PWD" });
     const senior = await Resident.countDocuments({ tags: "Senior Citizen" });
     const soloParent = await Resident.countDocuments({ tags: "Solo Parent" });
+    await auditLog(req.user?._id, 'Get Demographics', 'Demographics data retrieved');
     res.json({
       civilStatus,
       employed,
@@ -151,6 +161,7 @@ exports.demographics = async (req, res) => {
       soloParent
     });
   } catch (err) {
+    await auditLog(req.user?._id, 'Get Demographics Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error generating demographics' });
   }
 };
@@ -184,7 +195,10 @@ exports.demographicsExportPDF = async (req, res) => {
     doc.text(`Solo Parent: ${soloParent}`);
 
     doc.end();
+
+    await auditLog(req.user?._id, 'Export Demographics PDF', 'Demographics exported as PDF');
   } catch (err) {
+    await auditLog(req.user?._id, 'Export Demographics PDF Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error exporting PDF' });
   }
 };
@@ -214,7 +228,10 @@ exports.demographicsExportExcel = async (req, res) => {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     await workbook.xlsx.write(res);
     res.end();
+
+    await auditLog(req.user?._id, 'Export Demographics Excel', 'Demographics exported as Excel');
   } catch (err) {
+    await auditLog(req.user?._id, 'Export Demographics Excel Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error exporting Excel' });
   }
 };
@@ -224,8 +241,10 @@ exports.voterStats = async (req, res) => {
   try {
     const voters = await Resident.countDocuments({ voterStatus: "Voter" });
     const nonVoters = await Resident.countDocuments({ voterStatus: { $ne: "Voter" } });
+    await auditLog(req.user?._id, 'Get Voter Stats', 'Voter stats data retrieved');
     res.json({ voters, nonVoters });
   } catch (err) {
+    await auditLog(req.user?._id, 'Get Voter Stats Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error generating voter stats' });
   }
 };
@@ -248,7 +267,10 @@ exports.voterStatsExportPDF = async (req, res) => {
     doc.text(`Non-voters: ${nonVoters}`);
 
     doc.end();
+
+    await auditLog(req.user?._id, 'Export Voter Stats PDF', 'Voter stats exported as PDF');
   } catch (err) {
+    await auditLog(req.user?._id, 'Export Voter Stats PDF Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error exporting PDF' });
   }
 };
@@ -269,7 +291,10 @@ exports.voterStatsExportExcel = async (req, res) => {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     await workbook.xlsx.write(res);
     res.end();
+
+    await auditLog(req.user?._id, 'Export Voter Stats Excel', 'Voter stats exported as Excel');
   } catch (err) {
+    await auditLog(req.user?._id, 'Export Voter Stats Excel Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error exporting Excel' });
   }
 };
@@ -283,8 +308,10 @@ exports.documentSummary = async (req, res) => {
     const byStatus = await Document.aggregate([
       { $group: { _id: "$status", count: { $sum: 1 } } }
     ]);
+    await auditLog(req.user?._id, 'Get Document Summary', 'Document summary data retrieved');
     res.json({ byType, byStatus });
   } catch (err) {
+    await auditLog(req.user?._id, 'Get Document Summary Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error generating document summary' });
   }
 };
@@ -311,7 +338,10 @@ exports.documentSummaryExportPDF = async (req, res) => {
     byStatus.forEach(row => doc.text(` - ${row._id}: ${row.count}`));
 
     doc.end();
+
+    await auditLog(req.user?._id, 'Export Document Summary PDF', 'Document summary exported as PDF');
   } catch (err) {
+    await auditLog(req.user?._id, 'Export Document Summary PDF Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error exporting PDF' });
   }
 };
@@ -334,7 +364,10 @@ exports.documentSummaryExportExcel = async (req, res) => {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     await workbook.xlsx.write(res);
     res.end();
+
+    await auditLog(req.user?._id, 'Export Document Summary Excel', 'Document summary exported as Excel');
   } catch (err) {
+    await auditLog(req.user?._id, 'Export Document Summary Excel Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error exporting Excel' });
   }
 };
@@ -359,8 +392,10 @@ exports.blotterStats = async (req, res) => {
       },
       { $sort: { "_id": 1 } }
     ]);
+    await auditLog(req.user?._id, 'Get Blotter Stats', 'Blotter stats data retrieved');
     res.json({ byStatus, byMonth });
   } catch (err) {
+    await auditLog(req.user?._id, 'Get Blotter Stats Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error generating blotter stats' });
   }
 };
@@ -398,7 +433,10 @@ exports.blotterStatsExportPDF = async (req, res) => {
     byMonth.forEach(row => doc.text(` - ${row._id}: ${row.count}`));
 
     doc.end();
+
+    await auditLog(req.user?._id, 'Export Blotter Stats PDF', 'Blotter stats exported as PDF');
   } catch (err) {
+    await auditLog(req.user?._id, 'Export Blotter Stats PDF Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error exporting PDF' });
   }
 };
@@ -432,7 +470,10 @@ exports.blotterStatsExportExcel = async (req, res) => {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     await workbook.xlsx.write(res);
     res.end();
+
+    await auditLog(req.user?._id, 'Export Blotter Stats Excel', 'Blotter stats exported as Excel');
   } catch (err) {
+    await auditLog(req.user?._id, 'Export Blotter Stats Excel Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error exporting Excel' });
   }
 };

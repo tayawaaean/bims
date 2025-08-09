@@ -1,6 +1,7 @@
 const Announcement = require('../models/Announcement');
 const logger = require('../utils/logger');
 const path = require('path');
+const auditLog = require('../utils/auditLogger'); // <--- add this
 
 // Create new announcement
 exports.createAnnouncement = async (req, res) => {
@@ -15,6 +16,14 @@ exports.createAnnouncement = async (req, res) => {
     });
     await announcement.save();
     logger.info(`📢 Announcement created: ${announcement._id}`);
+
+    // Audit log
+    await auditLog(
+      req.user?._id,
+      'Create Announcement',
+      `Created announcement: "${announcement.title}" (ID: ${announcement._id})`
+    );
+
     res.status(201).json({ message: 'Announcement posted', announcement });
   } catch (err) {
     logger.error(`❌ Error creating announcement: ${err.message}`);
@@ -79,10 +88,19 @@ exports.updateAnnouncement = async (req, res) => {
     if (req.file) {
       update.image = path.join('/uploads/announcements/', req.file.filename);
     }
+    const before = await Announcement.findById(req.params.id);
     const announcement = await Announcement.findByIdAndUpdate(req.params.id, update, { new: true })
       .populate('postedBy', 'name username');
     if (!announcement) return res.status(404).json({ message: 'Announcement not found' });
     logger.info(`✏️ Announcement updated: ${announcement._id}`);
+
+    // Audit log (log before and after)
+    await auditLog(
+      req.user?._id,
+      'Update Announcement',
+      `Announcement ID: ${announcement._id}\nBefore: ${JSON.stringify(before)}\nAfter: ${JSON.stringify(announcement)}`
+    );
+
     res.status(200).json({ message: 'Announcement updated', announcement });
   } catch (err) {
     logger.error(`❌ Error updating announcement: ${err.message}`);
@@ -96,6 +114,14 @@ exports.deleteAnnouncement = async (req, res) => {
     const deleted = await Announcement.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ message: 'Announcement not found' });
     logger.info(`🗑️ Announcement deleted: ${deleted._id}`);
+
+    // Audit log
+    await auditLog(
+      req.user?._id,
+      'Delete Announcement',
+      `Deleted announcement: "${deleted.title}" (ID: ${deleted._id})`
+    );
+
     res.status(200).json({ message: 'Announcement deleted' });
   } catch (err) {
     logger.error(`❌ Error deleting announcement: ${err.message}`);

@@ -3,6 +3,7 @@ const Resident = require('../models/Resident');
 const logger = require('../utils/logger');
 const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
+const auditLog = require('../utils/auditLogger'); // <-- Add this
 
 // 📄 Create a new document request
 exports.createRequest = async (req, res) => {
@@ -10,7 +11,10 @@ exports.createRequest = async (req, res) => {
     const { resident, type, purpose } = req.body;
 
     const residentExists = await Resident.findById(resident);
-    if (!residentExists) return res.status(404).json({ message: 'Resident not found' });
+    if (!residentExists) {
+      await auditLog(req.user?._id, 'Create Document Request Failed', `Resident not found: ${resident}`);
+      return res.status(404).json({ message: 'Resident not found' });
+    }
 
     const request = new DocumentRequest({
       resident,
@@ -20,10 +24,18 @@ exports.createRequest = async (req, res) => {
 
     await request.save();
     logger.info(`📥 Document requested: ${type} for ${resident}`);
+
+    await auditLog(
+      req.user?._id,
+      'Create Document Request',
+      `Type: ${type}, Purpose: ${purpose}, Resident: ${resident}, Request ID: ${request._id}`
+    );
+
     res.status(201).json({ message: 'Request created', request });
 
   } catch (err) {
     logger.error(`❌ Failed to create request: ${err.message}`);
+    await auditLog(req.user?._id, 'Create Document Request Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -34,11 +46,17 @@ exports.approveRequest = async (req, res) => {
     const requestId = req.params.id;
     const request = await DocumentRequest.findById(requestId).populate('resident');
 
-    if (!request) return res.status(404).json({ message: 'Request not found' });
+    if (!request) {
+      await auditLog(req.user?._id, 'Approve Document Request Failed', `Request not found: ${requestId}`);
+      return res.status(404).json({ message: 'Request not found' });
+    }
 
     if (request.status === 'Approved') {
+      await auditLog(req.user?._id, 'Approve Document Request Failed', `Already approved: ${requestId}`);
       return res.status(400).json({ message: 'Request already approved' });
     }
+
+    const before = JSON.stringify(request);
 
     // Optional: Generate QR code for this document (for PDF later)
     request.qrCode = `BRGY-DOC-${request._id}`;
@@ -50,10 +68,18 @@ exports.approveRequest = async (req, res) => {
     await request.save();
 
     logger.info(`✅ Document approved: ${request.type}`);
+
+    await auditLog(
+      req.user?._id,
+      'Approve Document Request',
+      `Request ID: ${request._id}\nBefore: ${before}\nAfter: ${JSON.stringify(request)}`
+    );
+
     res.status(200).json({ message: 'Request approved', request });
 
   } catch (err) {
     logger.error(`❌ Failed to approve request: ${err.message}`);
+    await auditLog(req.user?._id, 'Approve Document Request Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -75,6 +101,7 @@ exports.getRequests = async (req, res) => {
     res.status(200).json(requests);
   } catch (err) {
     logger.error(`❌ Failed to fetch requests: ${err.message}`);
+    await auditLog(req.user?._id, 'Fetch Document Requests Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -85,16 +112,29 @@ exports.markAsClaimed = async (req, res) => {
     const requestId = req.params.id;
     const request = await DocumentRequest.findById(requestId);
 
-    if (!request) return res.status(404).json({ message: 'Request not found' });
+    if (!request) {
+      await auditLog(req.user?._id, 'Mark Document as Claimed Failed', `Request not found: ${requestId}`);
+      return res.status(404).json({ message: 'Request not found' });
+    }
+
+    const before = JSON.stringify(request);
 
     request.status = 'Claimed';
     await request.save();
 
     logger.info(`🎉 Document claimed: ${request._id}`);
+
+    await auditLog(
+      req.user?._id,
+      'Mark Document as Claimed',
+      `Request ID: ${request._id}\nBefore: ${before}\nAfter: ${JSON.stringify(request)}`
+    );
+
     res.status(200).json({ message: 'Marked as claimed', request });
 
   } catch (err) {
     logger.error(`❌ Failed to mark as claimed: ${err.message}`);
+    await auditLog(req.user?._id, 'Mark Document as Claimed Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -104,9 +144,14 @@ exports.downloadPdf = async (req, res) => {
   try {
     const requestId = req.params.id;
     const request = await DocumentRequest.findById(requestId).populate('resident');
-    if (!request) return res.status(404).json({ message: 'Request not found' });
-    if (request.status !== 'Approved' && request.status !== 'Claimed')
+    if (!request) {
+      await auditLog(req.user?._id, 'Download Document PDF Failed', `Request not found: ${requestId}`);
+      return res.status(404).json({ message: 'Request not found' });
+    }
+    if (request.status !== 'Approved' && request.status !== 'Claimed') {
+      await auditLog(req.user?._id, 'Download Document PDF Failed', `Not yet approved: ${requestId}`);
       return res.status(400).json({ message: 'Document not yet approved' });
+    }
 
     // Generate QR code as Data URL (for verification or info)
     const qrData = `https://yourdomain.com/verify/${request._id}`;
@@ -142,8 +187,15 @@ exports.downloadPdf = async (req, res) => {
     doc.text('This document is system-generated and valid for its intended legal use.', 40, doc.page.height - 100, { align: 'center' });
 
     doc.end();
+
+    await auditLog(
+      req.user?._id,
+      'Download Document PDF',
+      `Request ID: ${request._id}`
+    );
   } catch (err) {
     logger.error(`❌ Failed to generate PDF: ${err.message}`);
+    await auditLog(req.user?._id, 'Download Document PDF Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error generating PDF' });
   }
 };

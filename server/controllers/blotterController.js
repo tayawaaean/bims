@@ -3,6 +3,7 @@ const logger = require('../utils/logger');
 const path = require('path');
 const PDFDocument = require('pdfkit');
 const ExcelJS = require('exceljs');
+const auditLog = require('../utils/auditLogger'); // <-- Add this
 
 // Create new or public blotter
 exports.createBlotter = async (req, res) => {
@@ -27,9 +28,17 @@ exports.createBlotter = async (req, res) => {
 
     await blotter.save();
     logger.info(`📝 Blotter created: ${blotter._id} (public: ${isPublicSubmission})`);
+
+    await auditLog(
+      userId,
+      'Create Blotter',
+      `Created blotter: ${blotter._id}, status: ${blotter.status}, isPublic: ${isPublicSubmission}`
+    );
+
     res.status(201).json({ message: 'Blotter recorded', blotter });
   } catch (err) {
     logger.error(`❌ Error creating blotter: ${err.message}`);
+    await auditLog(req.user?._id, 'Create Blotter Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error creating blotter' });
   }
 };
@@ -37,6 +46,7 @@ exports.createBlotter = async (req, res) => {
 // Advanced search & pagination
 exports.getBlotters = async (req, res) => {
   try {
+    // ... unchanged ...
     const {
       status,
       complainant,
@@ -47,6 +57,7 @@ exports.getBlotters = async (req, res) => {
       from,
       to,
       search,
+      approvalStatus,
       page = 1,
       limit = 10
     } = req.query;
@@ -65,6 +76,8 @@ exports.getBlotters = async (req, res) => {
       if (from) filter.incidentDate.$gte = new Date(from);
       if (to) filter.incidentDate.$lte = new Date(to);
     }
+
+    if (approvalStatus) filter.approvalStatus = approvalStatus;
 
     if (search) {
       filter.$or = [
@@ -86,6 +99,7 @@ exports.getBlotters = async (req, res) => {
       .populate('respondent', 'firstName lastName')
       .populate('createdBy', 'name username')
       .populate('caseHandler', 'name username')
+      .populate('approvedBy', 'name username')
       .sort({ incidentDate: -1, createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -109,7 +123,8 @@ exports.getBlotterById = async (req, res) => {
       .populate('complainant', 'firstName lastName')
       .populate('respondent', 'firstName lastName')
       .populate('createdBy', 'name username')
-      .populate('caseHandler', 'name username');
+      .populate('caseHandler', 'name username')
+      .populate('approvedBy', 'name username');
 
     if (!blotter) return res.status(404).json({ message: 'Blotter not found' });
     res.status(200).json(blotter);
@@ -124,6 +139,8 @@ exports.updateBlotter = async (req, res) => {
   try {
     const blotter = await Blotter.findById(req.params.id);
     if (!blotter) return res.status(404).json({ message: 'Blotter not found' });
+
+    const before = JSON.stringify(blotter);
 
     // Case Handler assignment
     if (req.body.caseHandler) {
@@ -151,8 +168,16 @@ exports.updateBlotter = async (req, res) => {
     blotter.updatedBy = req.user ? req.user._id : null;
 
     await blotter.save();
+
+    await auditLog(
+      req.user ? req.user._id : null,
+      'Update Blotter',
+      `Blotter ID: ${blotter._id}\nBefore: ${before}\nAfter: ${JSON.stringify(blotter)}`
+    );
+
     res.status(200).json({ message: 'Blotter updated', blotter });
   } catch (err) {
+    await auditLog(req.user?._id, 'Update Blotter Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error updating blotter' });
   }
 };
@@ -163,9 +188,17 @@ exports.deleteBlotter = async (req, res) => {
     const deleted = await Blotter.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ message: 'Blotter not found' });
     logger.info(`🗑️ Blotter deleted: ${deleted._id}`);
+
+    await auditLog(
+      req.user ? req.user._id : null,
+      'Delete Blotter',
+      `Deleted blotter: ${deleted._id}, complainant: ${deleted.complainantName}, respondent: ${deleted.respondentName}`
+    );
+
     res.status(200).json({ message: 'Blotter deleted' });
   } catch (err) {
     logger.error(`❌ Error deleting blotter: ${err.message}`);
+    await auditLog(req.user?._id, 'Delete Blotter Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error deleting blotter' });
   }
 };
@@ -183,6 +216,12 @@ exports.uploadAttachment = async (req, res) => {
       blotter.attachments = blotter.attachments.concat(attachmentPaths);
       blotter.updatedBy = req.user ? req.user._id : null;
       await blotter.save();
+
+      await auditLog(
+        req.user ? req.user._id : null,
+        'Upload Blotter Attachment',
+        `Blotter ID: ${blotter._id}, Uploaded: ${attachmentPaths.join(', ')}`
+      );
     }
 
     logger.info(`📎 Attachments uploaded for blotter: ${blotter._id}`);
@@ -192,6 +231,7 @@ exports.uploadAttachment = async (req, res) => {
     });
   } catch (err) {
     logger.error(`❌ Error uploading attachments: ${err.message}`);
+    await auditLog(req.user?._id, 'Upload Blotter Attachment Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error uploading attachments' });
   }
 };
@@ -219,11 +259,22 @@ exports.exportBlotterPDF = async (req, res) => {
       doc.text(`Nature: ${b.natureOfComplaint || ''}`);
       doc.text(`Description: ${b.description || ''}`);
       doc.text(`Status: ${b.status}`);
+      doc.text(`Approval Status: ${b.approvalStatus || 'pending'}`);
+      doc.text(`Approved By: ${b.approvedBy || ''}`);
+      doc.text(`Approved At: ${b.approvedAt ? new Date(b.approvedAt).toLocaleString() : ''}`);
+      doc.text(`Approval Remarks: ${b.approvalRemarks || ''}`);
       doc.moveDown();
     });
 
     doc.end();
+
+    await auditLog(
+      req.user ? req.user._id : null,
+      'Export Blotters PDF',
+      'Exported all blotters as PDF'
+    );
   } catch (err) {
+    await auditLog(req.user?._id, 'Export Blotters PDF Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error exporting PDF' });
   }
 };
@@ -244,7 +295,11 @@ exports.exportBlotterExcel = async (req, res) => {
       { header: 'Location', key: 'location', width: 18 },
       { header: 'Nature', key: 'natureOfComplaint', width: 28 },
       { header: 'Description', key: 'description', width: 32 },
-      { header: 'Status', key: 'status', width: 12 }
+      { header: 'Status', key: 'status', width: 12 },
+      { header: 'Approval Status', key: 'approvalStatus', width: 14 },
+      { header: 'Approved By', key: 'approvedBy', width: 20 },
+      { header: 'Approved At', key: 'approvedAt', width: 22 },
+      { header: 'Approval Remarks', key: 'approvalRemarks', width: 32 }
     ];
 
     blotters.forEach(b => {
@@ -256,7 +311,11 @@ exports.exportBlotterExcel = async (req, res) => {
         location: b.location || '',
         natureOfComplaint: b.natureOfComplaint || '',
         description: b.description || '',
-        status: b.status || ''
+        status: b.status || '',
+        approvalStatus: b.approvalStatus || '',
+        approvedBy: b.approvedBy ? b.approvedBy.toString() : '',
+        approvedAt: b.approvedAt ? new Date(b.approvedAt).toLocaleString() : '',
+        approvalRemarks: b.approvalRemarks || ''
       });
     });
 
@@ -264,7 +323,52 @@ exports.exportBlotterExcel = async (req, res) => {
     res.setHeader('Content-Disposition', 'attachment; filename=blotter_report.xlsx');
     await workbook.xlsx.write(res);
     res.end();
+
+    await auditLog(
+      req.user ? req.user._id : null,
+      'Export Blotters Excel',
+      'Exported all blotters as Excel'
+    );
   } catch (err) {
+    await auditLog(req.user?._id, 'Export Blotters Excel Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error exporting Excel' });
+  }
+};
+
+// --- Official Approval Handler ---
+exports.approveBlotter = async (req, res) => {
+  try {
+    const { approvalStatus, approvalRemarks } = req.body; // "approved" or "rejected"
+    const blotter = await Blotter.findById(req.params.id);
+    if (!blotter) return res.status(404).json({ message: 'Blotter not found' });
+
+    // Prevent re-approval
+    if (blotter.approvalStatus === 'approved') {
+      return res.status(400).json({ message: 'Blotter already approved' });
+    }
+
+    const before = JSON.stringify(blotter);
+
+    // Set approval details
+    blotter.approvalStatus = approvalStatus || 'approved';
+    blotter.approvedBy = req.user._id;
+    blotter.approvedAt = new Date();
+    blotter.approvalRemarks = approvalRemarks;
+
+    await blotter.save();
+
+    logger.info(`Blotter ${approvalStatus || 'approved'} by ${req.user.username || req.user._id}`);
+
+    await auditLog(
+      req.user ? req.user._id : null,
+      'Approve Blotter',
+      `Blotter ID: ${blotter._id}\nBefore: ${before}\nAfter: ${JSON.stringify(blotter)}`
+    );
+
+    res.json({ message: `Blotter ${approvalStatus || 'approved'} successfully`, blotter });
+  } catch (err) {
+    logger.error(`❌ Failed to approve blotter: ${err.message}`);
+    await auditLog(req.user?._id, 'Approve Blotter Failed', `Error: ${err.message}`);
+    res.status(500).json({ message: 'Failed to approve blotter' });
   }
 };

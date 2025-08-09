@@ -1,7 +1,8 @@
 const Household = require('../models/Household');
 const Resident = require('../models/Resident');
 const logger = require('../utils/logger');
-const updateHouseholdSummary = require('../utils/updateHouseholdSummary'); // ✅ NEW
+const updateHouseholdSummary = require('../utils/updateHouseholdSummary');
+const auditLog = require('../utils/auditLogger'); // <-- Add this
 
 // ➕ Add Household
 exports.addHousehold = async (req, res) => {
@@ -9,7 +10,10 @@ exports.addHousehold = async (req, res) => {
     const { householdCode, purok, head, address } = req.body;
 
     const existing = await Household.findOne({ householdCode });
-    if (existing) return res.status(400).json({ message: 'Household code already exists.' });
+    if (existing) {
+      await auditLog(req.user?._id, 'Add Household Failed', `Household code already exists: ${householdCode}`);
+      return res.status(400).json({ message: 'Household code already exists.' });
+    }
 
     const newHousehold = new Household({
       householdCode,
@@ -21,10 +25,17 @@ exports.addHousehold = async (req, res) => {
     await newHousehold.save();
 
     logger.info(`🏠 Household created: ${householdCode}`);
+    await auditLog(
+      req.user?._id,
+      'Add Household',
+      `Created household: ${householdCode} (ID: ${newHousehold._id})`
+    );
+
     res.status(201).json({ message: 'Household created successfully', household: newHousehold });
 
   } catch (err) {
     logger.error(`❌ Error creating household: ${err.message}`);
+    await auditLog(req.user?._id, 'Add Household Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -32,18 +43,30 @@ exports.addHousehold = async (req, res) => {
 // ✏️ Update Household Info
 exports.updateHousehold = async (req, res) => {
   try {
+    const before = await Household.findById(req.params.id);
+
     const updated = await Household.findByIdAndUpdate(req.params.id, req.body, { new: true });
 
-    if (!updated) return res.status(404).json({ message: 'Household not found' });
+    if (!updated) {
+      await auditLog(req.user?._id, 'Update Household Failed', `Household not found: ${req.params.id}`);
+      return res.status(404).json({ message: 'Household not found' });
+    }
 
     // ✅ Update derived fields
     await updateHouseholdSummary(updated._id);
 
     logger.info(`✏️ Household updated: ${updated.householdCode}`);
+    await auditLog(
+      req.user?._id,
+      'Update Household',
+      `Household ID: ${req.params.id}\nBefore: ${JSON.stringify(before)}\nAfter: ${JSON.stringify(updated)}`
+    );
+
     res.status(200).json({ message: 'Household updated', household: updated });
 
   } catch (err) {
     logger.error(`❌ Error updating household: ${err.message}`);
+    await auditLog(req.user?._id, 'Update Household Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -52,13 +75,23 @@ exports.updateHousehold = async (req, res) => {
 exports.deleteHousehold = async (req, res) => {
   try {
     const deleted = await Household.findByIdAndDelete(req.params.id);
-    if (!deleted) return res.status(404).json({ message: 'Household not found' });
+    if (!deleted) {
+      await auditLog(req.user?._id, 'Delete Household Failed', `Household not found: ${req.params.id}`);
+      return res.status(404).json({ message: 'Household not found' });
+    }
 
     logger.info(`🗑 Household deleted: ${deleted.householdCode}`);
+    await auditLog(
+      req.user?._id,
+      'Delete Household',
+      `Deleted household: ${deleted.householdCode} (ID: ${deleted._id})`
+    );
+
     res.status(200).json({ message: 'Household deleted' });
 
   } catch (err) {
     logger.error(`❌ Error deleting household: ${err.message}`);
+    await auditLog(req.user?._id, 'Delete Household Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -93,6 +126,7 @@ exports.getHouseholds = async (req, res) => {
 
   } catch (err) {
     logger.error(`❌ Failed to fetch households: ${err.message}`);
+    await auditLog(req.user?._id, 'Fetch Households Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -101,11 +135,15 @@ exports.getHouseholds = async (req, res) => {
 exports.getHouseholdById = async (req, res) => {
   try {
     const household = await Household.findById(req.params.id).populate('head');
-    if (!household) return res.status(404).json({ message: 'Household not found' });
+    if (!household) {
+      await auditLog(req.user?._id, 'Get Household Failed', `Household not found: ${req.params.id}`);
+      return res.status(404).json({ message: 'Household not found' });
+    }
 
     res.status(200).json(household);
   } catch (err) {
     logger.error(`❌ Failed to get household: ${err.message}`);
+    await auditLog(req.user?._id, 'Get Household Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -126,6 +164,7 @@ exports.getHouseholdMembers = async (req, res) => {
     });
   } catch (err) {
     logger.error(`❌ Failed to get household members: ${err.message}`);
+    await auditLog(req.user?._id, 'Get Household Members Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -136,7 +175,10 @@ exports.recalculateTotalMembers = async (req, res) => {
     const { id } = req.params;
 
     const household = await Household.findById(id);
-    if (!household) return res.status(404).json({ message: 'Household not found' });
+    if (!household) {
+      await auditLog(req.user?._id, 'Recalculate Household Summary Failed', `Household not found: ${id}`);
+      return res.status(404).json({ message: 'Household not found' });
+    }
 
     // ✅ Full summary update (members, income, 4Ps)
     await updateHouseholdSummary(id);
@@ -144,6 +186,11 @@ exports.recalculateTotalMembers = async (req, res) => {
     const updated = await Household.findById(id);
 
     logger.info(`🔄 Recalculated summary for ${updated.householdCode}`);
+    await auditLog(
+      req.user?._id,
+      'Recalculate Household Summary',
+      `Recalculated summary for household: ${updated.householdCode} (ID: ${updated._id})`
+    );
 
     res.status(200).json({
       message: 'Household summary updated',
@@ -154,6 +201,7 @@ exports.recalculateTotalMembers = async (req, res) => {
 
   } catch (err) {
     logger.error(`❌ Error recalculating household summary: ${err.message}`);
+    await auditLog(req.user?._id, 'Recalculate Household Summary Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error' });
   }
 };

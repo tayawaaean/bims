@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 const updateHouseholdMembers = require('../utils/updateHouseholdMembers');
 const updateHouseholdHead = require('../utils/updateHouseholdHead');
 const updateHouseholdSummary = require('../utils/updateHouseholdSummary');
+const auditLog = require('../utils/auditLogger'); // <-- Add this
 
 const { Parser } = require('json2csv');
 const ExcelJS = require('exceljs');
@@ -38,6 +39,7 @@ exports.addResident = async (req, res) => {
     if (body.household) {
       const householdExists = await Household.findById(body.household);
       if (!householdExists) {
+        await auditLog(req.user?._id, 'Add Resident Failed', 'Invalid household reference');
         return res.status(400).json({ message: 'Invalid household reference' });
       }
 
@@ -58,10 +60,16 @@ exports.addResident = async (req, res) => {
     await updateHouseholdSummary(newResident.household);
 
     logger.info(`👤 Resident added: ${newResident.firstName} ${newResident.lastName}`);
+    await auditLog(
+      req.user?._id,
+      'Add Resident',
+      `Added resident: ${newResident.firstName} ${newResident.lastName} (ID: ${newResident._id})`
+    );
     res.status(201).json({ message: 'Resident added successfully', resident: newResident });
 
   } catch (err) {
     logger.error(`❌ Failed to add resident: ${err.message}`);
+    await auditLog(req.user?._id, 'Add Resident Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error adding resident' });
   }
 };
@@ -73,7 +81,10 @@ exports.updateResident = async (req, res) => {
     const residentId = req.params.id;
 
     const existing = await Resident.findById(residentId);
-    if (!existing) return res.status(404).json({ message: 'Resident not found' });
+    if (!existing) {
+      await auditLog(req.user?._id, 'Update Resident Failed', 'Resident not found');
+      return res.status(404).json({ message: 'Resident not found' });
+    }
 
     const oldHousehold = existing.household?.toString();
     const newHousehold = body.household || oldHousehold;
@@ -81,6 +92,8 @@ exports.updateResident = async (req, res) => {
     if (body.relationshipToHead === 'Head') {
       await ensureSingleHouseholdHead(newHousehold, residentId);
     }
+
+    const before = JSON.stringify(existing);
 
     const updated = await Resident.findByIdAndUpdate(residentId, body, { new: true });
 
@@ -95,10 +108,16 @@ exports.updateResident = async (req, res) => {
     await updateHouseholdSummary(newHousehold);
 
     logger.info(`✏️ Resident updated: ${updated.firstName} ${updated.lastName}`);
+    await auditLog(
+      req.user?._id,
+      'Update Resident',
+      `Resident ID: ${residentId}\nBefore: ${before}\nAfter: ${JSON.stringify(updated)}`
+    );
     res.status(200).json({ message: 'Resident updated successfully', resident: updated });
 
   } catch (err) {
     logger.error(`❌ Failed to update resident: ${err.message}`);
+    await auditLog(req.user?._id, 'Update Resident Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error updating resident' });
   }
 };
@@ -107,16 +126,27 @@ exports.updateResident = async (req, res) => {
 exports.updateResidentAvatar = async (req, res) => {
   try {
     const resident = await Resident.findById(req.params.id);
-    if (!resident) return res.status(404).json({ message: 'Resident not found' });
+    if (!resident) {
+      await auditLog(req.user?._id, 'Update Resident Avatar Failed', 'Resident not found');
+      return res.status(404).json({ message: 'Resident not found' });
+    }
+
+    const before = resident.avatar;
 
     resident.avatar = `/uploads/residents/${req.file.filename}`;
     await resident.save();
 
     logger.info(`🖼 Avatar updated for: ${resident.firstName} ${resident.lastName}`);
+    await auditLog(
+      req.user?._id,
+      'Update Resident Avatar',
+      `Resident ID: ${resident._id}\nBefore: ${before}\nAfter: ${resident.avatar}`
+    );
     res.status(200).json({ message: 'Avatar updated successfully', avatar: resident.avatar });
 
   } catch (err) {
     logger.error(`❌ Failed to update avatar: ${err.message}`);
+    await auditLog(req.user?._id, 'Update Resident Avatar Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error updating avatar' });
   }
 };
@@ -125,17 +155,26 @@ exports.updateResidentAvatar = async (req, res) => {
 exports.deleteResident = async (req, res) => {
   try {
     const deleted = await Resident.findByIdAndDelete(req.params.id);
-    if (!deleted) return res.status(404).json({ message: 'Resident not found' });
+    if (!deleted) {
+      await auditLog(req.user?._id, 'Delete Resident Failed', 'Resident not found');
+      return res.status(404).json({ message: 'Resident not found' });
+    }
 
     await updateHouseholdMembers(deleted.household);
     await updateHouseholdHead(deleted.household);
     await updateHouseholdSummary(deleted.household);
 
     logger.info(`🗑 Resident deleted: ${deleted.firstName} ${deleted.lastName}`);
+    await auditLog(
+      req.user?._id,
+      'Delete Resident',
+      `Deleted resident: ${deleted.firstName} ${deleted.lastName} (ID: ${deleted._id})`
+    );
     res.status(200).json({ message: 'Resident deleted successfully' });
 
   } catch (err) {
     logger.error(`❌ Failed to delete resident: ${err.message}`);
+    await auditLog(req.user?._id, 'Delete Resident Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error deleting resident' });
   }
 };
@@ -196,6 +235,11 @@ exports.getResidents = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
+    await auditLog(
+      req.user?._id,
+      'Get Residents',
+      `Fetched residents list with filters: ${JSON.stringify(req.query)}`
+    );
     res.status(200).json({
       residents,
       total,
@@ -205,6 +249,7 @@ exports.getResidents = async (req, res) => {
 
   } catch (err) {
     logger.error(`❌ Failed to fetch residents: ${err.message}`);
+    await auditLog(req.user?._id, 'Get Residents Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error fetching residents' });
   }
 };
@@ -215,12 +260,17 @@ exports.getResidentById = async (req, res) => {
     const resident = await Resident.findById(req.params.id)
       .populate('household', 'householdCode purok');
 
-    if (!resident) return res.status(404).json({ message: 'Resident not found' });
+    if (!resident) {
+      await auditLog(req.user?._id, 'Get Resident Failed', 'Resident not found');
+      return res.status(404).json({ message: 'Resident not found' });
+    }
 
+    await auditLog(req.user?._id, 'Get Resident', `Fetched resident: ${resident._id}`);
     res.status(200).json(resident);
 
   } catch (err) {
     logger.error(`❌ Failed to fetch resident: ${err.message}`);
+    await auditLog(req.user?._id, 'Get Resident Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error fetching resident' });
   }
 };
@@ -233,10 +283,12 @@ exports.getResidentsByHousehold = async (req, res) => {
     const residents = await Resident.find({ household: householdId })
       .sort({ lastName: 1 });
 
+    await auditLog(req.user?._id, 'Get Residents By Household', `Household: ${householdId}`);
     res.status(200).json({ householdId, residents });
 
   } catch (err) {
     logger.error(`❌ Failed to fetch household members: ${err.message}`);
+    await auditLog(req.user?._id, 'Get Residents By Household Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Server error fetching household members' });
   }
 };
@@ -253,10 +305,12 @@ exports.exportResidentsCSV = async (req, res) => {
     const json2csv = new Parser({ fields });
     const csvFile = json2csv.parse(residents);
 
+    await auditLog(req.user?._id, 'Export Residents CSV', 'Residents exported as CSV');
     res.header('Content-Type', 'text/csv');
     res.attachment('residents.csv');
     return res.send(csvFile);
   } catch (err) {
+    await auditLog(req.user?._id, 'Export Residents CSV Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error exporting CSV' });
   }
 };
@@ -279,11 +333,13 @@ exports.exportResidentsExcel = async (req, res) => {
 
     residents.forEach(r => worksheet.addRow(r));
 
+    await auditLog(req.user?._id, 'Export Residents Excel', 'Residents exported as Excel');
     res.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.attachment('residents.xlsx');
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    await auditLog(req.user?._id, 'Export Residents Excel Failed', `Error: ${err.message}`);
     res.status(500).json({ message: 'Error exporting Excel' });
   }
 };
@@ -299,8 +355,10 @@ exports.importResidentsCSV = async (req, res) => {
       try {
         await Resident.insertMany(results);
         fs.unlinkSync(req.file.path);
+        await auditLog(req.user?._id, 'Import Residents CSV', `Imported residents from CSV. Count: ${results.length}`);
         res.json({ message: "Residents imported successfully", count: results.length });
       } catch (err) {
+        await auditLog(req.user?._id, 'Import Residents CSV Failed', `Error: ${err.message}`);
         res.status(500).json({ message: "Error importing residents", error: err.message });
       }
     });
@@ -321,8 +379,10 @@ exports.importResidentsExcel = async (req, res) => {
     });
     await Resident.insertMany(residents);
     fs.unlinkSync(req.file.path);
+    await auditLog(req.user?._id, 'Import Residents Excel', `Imported residents from Excel. Count: ${residents.length}`);
     res.json({ message: "Residents imported from Excel", count: residents.length });
   } catch (err) {
+    await auditLog(req.user?._id, 'Import Residents Excel Failed', `Error: ${err.message}`);
     res.status(500).json({ message: "Error importing residents from Excel", error: err.message });
   }
 };

@@ -9,14 +9,22 @@ const connectDB = require('./config/db');
 const rateLimit = require('express-rate-limit');
 const slowDown = require('express-slow-down');
 
+// Add these imports for Swagger
+const swaggerUi = require('swagger-ui-express');
+const YAML = require('yamljs');
+
 // Load environment variables
-dotenv.config();
+const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env';
+dotenv.config({ path: envFile });
 
 // Connect to MongoDB
 connectDB();
 
 // Initialize app
 const app = express();
+
+// Load Swagger document
+const swaggerDocument = YAML.load(path.join(__dirname, 'swagger.yaml'));
 
 // Rate limiter (basic security)
 const limiter = rateLimit({
@@ -52,6 +60,9 @@ app.use(speedLimiter);
 // Serve static files (e.g. avatars)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Setup Swagger UI
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
 // Routes
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
@@ -63,6 +74,7 @@ const announcementRoutes = require('./routes/announcementRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const systemRoutes = require('./routes/systemRoutes');
+const verifyRoutes = require('./routes/verifyRoutes');
 // Add more route files here (e.g. residentRoutes, announcementRoutes, etc.)
 
 // API Endpoints
@@ -76,6 +88,7 @@ app.use('/api/announcements', announcementRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/system', systemRoutes);
+app.use('/api/verify', verifyRoutes);
 
 
 // Root
@@ -93,4 +106,5 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`📚 API Documentation available at: http://localhost:${PORT}/api-docs`);
 });

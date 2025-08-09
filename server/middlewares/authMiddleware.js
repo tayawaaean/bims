@@ -24,13 +24,24 @@ const protect = async (req, res, next) => {
   }
 };
 
-// ✅ Only allow admins
 const adminOnly = (req, res, next) => {
-  if (req.user && req.user.role === 'admin') {
+  if (req.user && req.user.role && req.user.role.includes('admin')) {
     next();
   } else {
     return res.status(403).json({ message: 'Access denied. Admins only.' });
   }
 };
 
-module.exports = { protect, adminOnly };
+const officialOrAdmin = (req, res, next) => {
+  if (
+    req.user &&
+    req.user.role &&
+    (req.user.role.includes('admin') || req.user.role.includes('official'))
+  ) {
+    next();
+  } else {
+    return res.status(403).json({ message: 'Access denied. Admins or officials only.' });
+  }
+};
+
+module.exports = { protect, adminOnly, officialOrAdmin };

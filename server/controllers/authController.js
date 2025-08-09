@@ -25,7 +25,7 @@ const generateRefreshToken = (userId) => {
   });
 };
 
-// Register New User
+// Register New User (support multiple roles)
 exports.registerUser = async (req, res) => {
   try {
     const { name, username, email, password, role } = req.body;
@@ -34,6 +34,7 @@ exports.registerUser = async (req, res) => {
     const existingUsername = await User.findOne({ username });
     if (existingUsername) {
       logger.warn(`Duplicate username attempt: ${username}`);
+      await auditLog(null, 'Register User Failed', `Username already exists: "${username}"`);
       return res.status(409).json({
         message: 'Username already exists',
         field: 'username'
@@ -43,6 +44,7 @@ exports.registerUser = async (req, res) => {
     const existingEmail = await User.findOne({ email });
     if (existingEmail) {
       logger.warn(`Duplicate email attempt: ${email}`);
+      await auditLog(null, 'Register User Failed', `Email already exists: "${email}"`);
       return res.status(409).json({
         message: 'Email already exists',
         field: 'email'
@@ -53,19 +55,29 @@ exports.registerUser = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
+    // Accept multi-role: role can be an array or a single string
+    let userRoles = [];
+    if (Array.isArray(role)) {
+      userRoles = role;
+    } else if (typeof role === 'string') {
+      userRoles = [role];
+    } else {
+      userRoles = ['resident']; // default fallback
+    }
+
     // Create user
     const user = new User({
       name,
       username,
       email,
       password: hashedPassword,
-      role
+      role: userRoles
     });
 
     await user.save();
 
-    logger.info(`📝 User registered and pending approval: ${email} (${role})`);
-    await auditLog(user._id, 'User Registration', `Registered as ${role}, pending approval`);
+    logger.info(`📝 User registered and pending approval: ${email} (${userRoles.join(',')})`);
+    await auditLog(user._id, 'Register User', `Registered as ${userRoles.join(',')}, pending approval. Username: ${username}, Email: ${email}`);
 
     res.status(201).json({
       message: 'Registration successful. Pending admin approval.',
@@ -74,6 +86,7 @@ exports.registerUser = async (req, res) => {
 
   } catch (error) {
     logger.error(`❌ Registration error: ${error.message}`);
+    await auditLog(null, 'Register User Error', `Error: ${error.message}`);
     res.status(500).json({ message: 'Server error during registration.' });
   }
 };
@@ -89,16 +102,19 @@ exports.loginUser = async (req, res) => {
 
     if (!user) {
       logger.warn(`Login failed: No user ${identifier}`);
+      await auditLog(null, 'Login Failed', `Invalid credentials for: ${identifier}`);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     if (!user.isApproved) {
+      await auditLog(user._id, 'Login Denied', 'Account not yet approved');
       return res.status(403).json({ message: 'Account not yet approved' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       logger.warn(`Invalid login for ${user.email}`);
+      await auditLog(user._id, 'Login Failed', `Invalid password for: ${identifier}`);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
@@ -106,12 +122,12 @@ exports.loginUser = async (req, res) => {
     const refreshToken = generateRefreshToken(user._id);
 
     logger.info(`✅ ${user.email} logged in`);
-    await auditLog(user._id, 'User Login', `Logged in with ${identifier}`);
+    await auditLog(user._id, 'Login', `Logged in with ${identifier}`);
 
     // Set HTTP-only cookie with refresh token
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: false, // set to true in production with HTTPS
+      secure: process.env.NODE_ENV === 'production', // set to true in production with HTTPS
       sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
@@ -128,6 +144,7 @@ exports.loginUser = async (req, res) => {
     });
   } catch (error) {
     logger.error(`Login error: ${error.message}`);
+    await auditLog(null, 'Login Error', `Error: ${error.message}`);
     res.status(500).json({ message: 'Login failed' });
   }
 };
@@ -136,16 +153,20 @@ exports.loginUser = async (req, res) => {
 exports.refreshToken = (req, res) => {
   const token = req.cookies.refreshToken;
 
-  if (!token) return res.status(401).json({ message: 'No refresh token' });
+  if (!token) {
+    auditLog(null, 'Refresh Token Failed', 'No refresh token provided');
+    return res.status(401).json({ message: 'No refresh token' });
+  }
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
     const accessToken = generateAccessToken(decoded.id);
 
-    auditLog(decoded.id, 'Refresh Token', 'Issued new access token'); // ✅ log refresh
+    auditLog(decoded.id, 'Refresh Token', 'Issued new access token');
 
     return res.status(200).json({ accessToken });
   } catch (err) {
+    auditLog(null, 'Refresh Token Error', `Invalid refresh token: ${err.message}`);
     return res.status(403).json({ message: 'Invalid refresh token' });
   }
 };
@@ -161,6 +182,7 @@ exports.logoutUser = (req, res) => {
     auditLog(decoded.id, 'Logout', 'User logged out');
   } catch (e) {
     // Skip logging if token is missing or invalid
+    auditLog(null, 'Logout', 'User logged out (token missing or invalid)');
   }
 
   res.status(200).json({ message: 'Logged out successfully' });

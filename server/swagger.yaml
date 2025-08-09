@@ -1,0 +1,1359 @@
+openapi: 3.0.0
+info:
+  title: Barangay Information Management System API
+  description: |
+    API documentation for the Barangay Information Management System. 
+    This API provides functionality for managing residents, households, documents, blotters, 
+    announcements, and other barangay management tasks.
+  version: 1.0.0
+  contact:
+    email: admin@bims.com
+
+servers:
+  - url: http://localhost:5000/api
+    description: Development server
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+        role:
+          type: array
+          items:
+            type: string
+        avatar:
+          type: string
+        isApproved:
+          type: boolean
+
+    Resident:
+      type: object
+      properties:
+        _id:
+          type: string
+        firstName:
+          type: string
+        middleName:
+          type: string
+        lastName:
+          type: string
+        birthdate:
+          type: string
+          format: date
+        gender:
+          type: string
+          enum: [Male, Female]
+        civilStatus:
+          type: string
+        employment:
+          type: string
+        monthlyIncome:
+          type: number
+        voterStatus:
+          type: string
+        address:
+          type: object
+        household:
+          type: string
+        relationshipToHead:
+          type: string
+        is4PsBeneficiary:
+          type: boolean
+        isPWD:
+          type: boolean
+        isSeniorCitizen:
+          type: boolean
+        isSoloParent:
+          type: boolean
+        avatar:
+          type: string
+
+    Household:
+      type: object
+      properties:
+        _id:
+          type: string
+        householdCode:
+          type: string
+        purok:
+          type: string
+        address:
+          type: string
+        head:
+          type: string
+        totalMembers:
+          type: number
+        monthlyIncome:
+          type: number
+        has4PsBeneficiary:
+          type: boolean
+
+    DocumentRequest:
+      type: object
+      properties:
+        _id:
+          type: string
+        resident:
+          type: string
+        type:
+          type: string
+        purpose:
+          type: string
+        status:
+          type: string
+          enum: [Pending, Approved, Claimed, Rejected]
+        qrCode:
+          type: string
+        issuedBy:
+          type: string
+        issuedAt:
+          type: string
+          format: date-time
+
+    Blotter:
+      type: object
+      properties:
+        _id:
+          type: string
+        complainantName:
+          type: string
+        respondentName:
+          type: string
+        incidentDate:
+          type: string
+          format: date
+        location:
+          type: string
+        natureOfComplaint:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        attachments:
+          type: array
+          items:
+            type: string
+        statusHistory:
+          type: array
+          items:
+            type: object
+            properties:
+              status:
+                type: string
+              changedBy:
+                type: string
+              date:
+                type: string
+                format: date-time
+              remarks:
+                type: string
+
+    Announcement:
+      type: object
+      properties:
+        _id:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        image:
+          type: string
+        postedBy:
+          type: string
+        published:
+          type: boolean
+        visibleTo:
+          type: string
+          enum: [public, admin, staff, all]
+        createdAt:
+          type: string
+          format: date-time
+
+    BarangayProfile:
+      type: object
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        address:
+          type: string
+        contactInfo:
+          type: object
+        officials:
+          type: array
+          items:
+            type: object
+        logo:
+          type: string
+        mission:
+          type: string
+        vision:
+          type: string
+
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+
+paths:
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - username
+                - email
+                - password
+              properties:
+                name:
+                  type: string
+                username:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+                role:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  approvalStatus:
+                    type: boolean
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Username or email already exists
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  field:
+                    type: string
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - identifier
+                - password
+              properties:
+                identifier:
+                  type: string
+                  description: Email or username
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Invalid credentials
+        '403':
+          description: Account not approved
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      description: Uses HTTP-only cookie with refresh token
+      responses:
+        '200':
+          description: New access token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken:
+                    type: string
+        '401':
+          description: No refresh token
+        '403':
+          description: Invalid refresh token
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: Logout user
+      description: Clears refresh token cookie
+      responses:
+        '200':
+          description: Logged out successfully
+
+  /users/me:
+    get:
+      tags:
+        - User
+      summary: Get current user profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized
+
+  /users/update-profile:
+    patch:
+      tags:
+        - User
+      summary: Update user profile
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                username:
+                  type: string
+                currentPassword:
+                  type: string
+                  description: Required for verification
+                avatar:
+                  type: string
+                  format: binary
+                role:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Profile updated
+        '401':
+          description: Current password incorrect
+        '409':
+          description: Username already in use
+
+  /users/change-password:
+    patch:
+      tags:
+        - User
+      summary: Change user password
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - currentPassword
+                - newPassword
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+      responses:
+        '200':
+          description: Password changed
+        '401':
+          description: Current password incorrect
+
+  /residents:
+    get:
+      tags:
+        - Residents
+      summary: Get all residents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: gender
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: purok
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of residents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  residents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Resident'
+                  total:
+                    type: number
+                  page:
+                    type: number
+                  totalPages:
+                    type: number
+    post:
+      tags:
+        - Residents
+      summary: Add new resident
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - firstName
+                - lastName
+              properties:
+                firstName:
+                  type: string
+                middleName:
+                  type: string
+                lastName:
+                  type: string
+                birthdate:
+                  type: string
+                  format: date
+                gender:
+                  type: string
+                civilStatus:
+                  type: string
+                household:
+                  type: string
+                relationshipToHead:
+                  type: string
+                avatar:
+                  type: string
+                  format: binary
+                # Additional fields omitted for brevity
+      responses:
+        '201':
+          description: Resident added
+        '400':
+          description: Invalid household reference
+
+  /residents/{id}:
+    get:
+      tags:
+        - Residents
+      summary: Get resident by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Resident details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resident'
+        '404':
+          description: Resident not found
+    put:
+      tags:
+        - Residents
+      summary: Update resident
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Resident updated
+        '404':
+          description: Resident not found
+    delete:
+      tags:
+        - Residents
+      summary: Delete resident
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Resident deleted
+        '404':
+          description: Resident not found
+
+  /residents/export/csv:
+    get:
+      tags:
+        - Residents
+      summary: Export residents as CSV
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: CSV file
+          content:
+            text/csv:
+              schema:
+                type: string
+
+  /residents/export/excel:
+    get:
+      tags:
+        - Residents
+      summary: Export residents as Excel
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Excel file
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+  /households:
+    get:
+      tags:
+        - Households
+      summary: Get all households
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of households
+    post:
+      tags:
+        - Households
+      summary: Add new household
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - householdCode
+              properties:
+                householdCode:
+                  type: string
+                purok:
+                  type: string
+                head:
+                  type: string
+                address:
+                  type: string
+      responses:
+        '201':
+          description: Household created
+
+  /households/{id}:
+    get:
+      tags:
+        - Households
+      summary: Get household by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Household details
+        '404':
+          description: Household not found
+    put:
+      tags:
+        - Households
+      summary: Update household
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Household updated
+        '404':
+          description: Household not found
+    delete:
+      tags:
+        - Households
+      summary: Delete household
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Household deleted
+        '404':
+          description: Household not found
+
+  /households/{householdId}/members:
+    get:
+      tags:
+        - Households
+      summary: Get household members
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: householdId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Household members
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  householdId:
+                    type: string
+                  residents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Resident'
+
+  /documents:
+    get:
+      tags:
+        - Documents
+      summary: Get all document requests
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: resident
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of document requests
+    post:
+      tags:
+        - Documents
+      summary: Create document request
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - resident
+                - type
+                - purpose
+              properties:
+                resident:
+                  type: string
+                type:
+                  type: string
+                purpose:
+                  type: string
+      responses:
+        '201':
+          description: Request created
+
+  /documents/{id}/approve:
+    put:
+      tags:
+        - Documents
+      summary: Approve document request
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Request approved
+        '404':
+          description: Request not found
+
+  /documents/{id}/claim:
+    put:
+      tags:
+        - Documents
+      summary: Mark document as claimed
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Marked as claimed
+        '404':
+          description: Request not found
+
+  /documents/{id}/pdf:
+    get:
+      tags:
+        - Documents
+      summary: Download document PDF
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: PDF document
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Request not found
+
+  /blotters:
+    get:
+      tags:
+        - Blotters
+      summary: Get all blotters
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of blotters
+    post:
+      tags:
+        - Blotters
+      summary: Create blotter report
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                complainantName:
+                  type: string
+                respondentName:
+                  type: string
+                incidentDate:
+                  type: string
+                  format: date
+                incidentTime:
+                  type: string
+                location:
+                  type: string
+                natureOfComplaint:
+                  type: string
+                description:
+                  type: string
+                status:
+                  type: string
+                remarks:
+                  type: string
+      responses:
+        '201':
+          description: Blotter created
+
+  /blotters/public:
+    post:
+      tags:
+        - Blotters
+      summary: Create public blotter report
+      description: Allow anonymous submissions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                complainantName:
+                  type: string
+                respondentName:
+                  type: string
+                incidentDate:
+                  type: string
+                  format: date
+                incidentTime:
+                  type: string
+                location:
+                  type: string
+                natureOfComplaint:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Blotter created
+
+  /blotters/{id}:
+    get:
+      tags:
+        - Blotters
+      summary: Get blotter by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Blotter details
+        '404':
+          description: Blotter not found
+    put:
+      tags:
+        - Blotters
+      summary: Update blotter
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                remarks:
+                  type: string
+                caseHandler:
+                  type: string
+      responses:
+        '200':
+          description: Blotter updated
+        '404':
+          description: Blotter not found
+    delete:
+      tags:
+        - Blotters
+      summary: Delete blotter
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Blotter deleted
+        '404':
+          description: Blotter not found
+
+  /blotters/{id}/attachments:
+    post:
+      tags:
+        - Blotters
+      summary: Upload attachments
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                attachments:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '200':
+          description: Attachments uploaded
+
+  /blotters/{id}/approve:
+    patch:
+      tags:
+        - Blotters
+      summary: Approve/reject blotter
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                approvalStatus:
+                  type: string
+                  enum: [approved, rejected]
+                approvalRemarks:
+                  type: string
+      responses:
+        '200':
+          description: Blotter approval updated
+
+  /announcements:
+    get:
+      tags:
+        - Announcements
+      summary: Get announcements
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: published
+          in: query
+          schema:
+            type: boolean
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of announcements
+    post:
+      tags:
+        - Announcements
+      summary: Create announcement
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - title
+                - content
+              properties:
+                title:
+                  type: string
+                content:
+                  type: string
+                image:
+                  type: string
+                  format: binary
+                published:
+                  type: boolean
+                visibleTo:
+                  type: string
+                  enum: [public, admin, staff, all]
+      responses:
+        '201':
+          description: Announcement created
+
+  /announcements/{id}:
+    get:
+      tags:
+        - Announcements
+      summary: Get announcement by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Announcement details
+        '404':
+          description: Announcement not found
+    put:
+      tags:
+        - Announcements
+      summary: Update announcement
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                content:
+                  type: string
+                image:
+                  type: string
+                  format: binary
+                published:
+                  type: boolean
+                visibleTo:
+                  type: string
+      responses:
+        '200':
+          description: Announcement updated
+        '404':
+          description: Announcement not found
+    delete:
+      tags:
+        - Announcements
+      summary: Delete announcement
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Announcement deleted
+        '404':
+          description: Announcement not found
+
+  /profile:
+    get:
+      tags:
+        - Barangay Profile
+      summary: Get barangay profile
+      responses:
+        '200':
+          description: Barangay profile
+        '404':
+          description: Profile not found
+    put:
+      tags:
+        - Barangay Profile
+      summary: Update barangay profile
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                address:
+                  type: string
+                contactInfo:
+                  type: object
+                officials:
+                  type: array
+                  items:
+                    type: object
+                mission:
+                  type: string
+                vision:
+                  type: string
+      responses:
+        '200':
+          description: Profile updated
+
+  /profile/logo:
+    post:
+      tags:
+        - Barangay Profile
+      summary: Upload barangay logo
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                logo:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Logo uploaded
+
+  /reports/population:
+    get:
+      tags:
+        - Reports
+      summary: Get population breakdown
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Population statistics
+
+  /reports/demographics:
+    get:
+      tags:
+        - Reports
+      summary: Get resident demographics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Demographic statistics
+
+  /reports/voter:
+    get:
+      tags:
+        - Reports
+      summary: Get voter statistics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Voter statistics
+
+  /reports/documents:
+    get:
+      tags:
+        - Reports
+      summary: Get document issuance summary
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Document statistics
+
+  /reports/blotters:
+    get:
+      tags:
+        - Reports
+      summary: Get blotter statistics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Blotter statistics
+
+  /system/backup:
+    post:
+      tags:
+        - System
+      summary: Backup database
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Backup completed
+
+  /system/backup/download:
+    get:
+      tags:
+        - System
+      summary: Download backup file
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: file
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Download backup file
+        '404':
+          description: File not found
+
+  /system/restore:
+    post:
+      tags:
+        - System
+      summary: Restore database
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                backup:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Restore completed
+
+security:
+  - bearerAuth: []

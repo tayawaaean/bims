@@ -41,7 +41,18 @@ const blotterSchema = new mongoose.Schema({
   updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   statusHistory: [statusHistorySchema], // Workflow history
   caseHandler: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Assignment
-  isPublic: { type: Boolean, default: false } // For public/anonymous submission
+  isPublic: { type: Boolean, default: false }, // For public/anonymous submission
+
+  // --- Official Approval Fields ---
+  approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  approvedAt: { type: Date },
+  approvalStatus: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending'
+  },
+  approvalRemarks: { type: String }
+  // --- end ---
 }, { timestamps: true });
 
 module.exports = mongoose.model('Blotter', blotterSchema);

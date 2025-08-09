@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "cross-env NODE_ENV=development node server.js",
+    "start": "cross-env NODE_ENV=production node server.js"
   },
   "keywords": [],
   "author": "",
@@ -30,9 +30,12 @@
     "multer": "^2.0.2",
     "pdfkit": "^0.17.1",
     "qrcode": "^1.5.4",
-    "winston": "^3.17.0"
+    "swagger-ui-express": "^5.0.1",
+    "winston": "^3.17.0",
+    "yamljs": "^0.3.0"
   },
   "devDependencies": {
+    "cross-env": "^10.0.0",
     "nodemon": "^3.1.10"
   }
 }

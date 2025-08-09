@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { protect, adminOnly } = require('../middlewares/authMiddleware');
-const upload = require('../middlewares/uploadBlotterAttachment');
+const { protect, adminOnly, officialOrAdmin } = require('../middlewares/authMiddleware');
+const upload = require('../middlewares/uploadBlotterAttatchment');
 const {
   createBlotter,
   getBlotters,
@@ -10,7 +10,8 @@ const {
   deleteBlotter,
   uploadAttachment,
   exportBlotterPDF,
-  exportBlotterExcel
+  exportBlotterExcel,
+  approveBlotter // <-- Add this import
 } = require('../controllers/blotterController');
 
 // Public submission (anonymous allowed)
@@ -29,5 +30,8 @@ router.post('/:id/attachments', protect, upload.array('attachments', 5), uploadA
 // Export routes
 router.get('/export/pdf', protect, adminOnly, exportBlotterPDF);
 router.get('/export/excel', protect, adminOnly, exportBlotterExcel);
+
+// Official Approval endpoint
+router.patch('/:id/approve', protect, officialOrAdmin, approveBlotter);
 
 module.exports = router;
